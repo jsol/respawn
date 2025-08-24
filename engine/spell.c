@@ -1,0 +1,301 @@
+#include <stdint.h>
+#include <stdlib.h>
+
+#include "common.h"
+#include "spell.h"
+
+static spell_t water[] = {{
+                              .name = "Water whip",
+                              .speed = 75,
+                              .charges = 5,
+                              .burst = 1,
+                              .range = {{
+                                            .range = 10,
+                                            .hit = 40,
+                                            .dmg = {.min = 30, .max = 50},
+                                        },
+                                        {
+                                            .range = 20,
+                                            .hit = 30,
+                                            .dmg = {.min = 20, .max = 50},
+                                        },
+                                        {
+                                            .range = 30,
+                                            .hit = 10,
+                                            .dmg = {.min = 10, .max = 50},
+                                        }
+
+                              },
+                          },
+                          {.name = "Water hammer",
+                           .speed = 5,
+                           .charges = 10,
+                           .burst = 1,
+                           .range = {{
+                               .range = 7,
+                               .hit = 80,
+                               .dmg = {.min = 80, .max = 100},
+                           }
+
+                           }}};
+
+static spell_t earth[] = {{
+                              .name = "Boulder",
+                              .speed = 20,
+                              .charges = 3,
+                              .burst = 1,
+                              .range = {{
+                                            .range = 5,
+                                            .hit = 80,
+                                            .dmg = {.min = 60, .max = 70},
+                                        },
+                                        {
+                                            .range = 10,
+                                            .hit = 50,
+                                            .dmg = {.min = 60, .max = 70},
+                                        },
+                                        {
+                                            .range = 15,
+                                            .hit = 30,
+                                            .dmg = {.min = 60, .max = 80},
+                                        },
+                                        {
+                                            .range = 20,
+                                            .hit = 10,
+                                            .dmg = {.min = 60, .max = 80},
+                                        }
+
+                              },
+                          },
+                          {.name = "Pebbles",
+                           .speed = 95,
+                           .charges = 15,
+                           .burst = 5,
+                           .range = {{
+                                         .range = 10,
+                                         .hit = 20,
+                                         .dmg = {.min = 15, .max = 20},
+                                     },
+                                     {
+                                         .range = 20,
+                                         .hit = 15,
+                                         .dmg = {.min = 10, .max = 15},
+                                     },
+                                     {
+                                         .range = 30,
+                                         .hit = 10,
+                                         .dmg = {.min = 5, .max = 10},
+                                     },
+                                     {
+                                         .range = 40,
+                                         .hit = 5,
+                                         .dmg = {.min = 0, .max = 10},
+                                     }
+
+                           }
+
+                          }};
+
+static spell_t air[] = {
+    {.name = "Swipe",
+     .speed = 85,
+     .charges = 12,
+     .burst = 1,
+     .range =
+         {
+             {
+                 .range = 40,
+                 .hit = 80,
+                 .dmg = {.min = 10, .max = 60},
+             },
+         },
+     .effect = {{.type = SPELL_EFFECT_PUSH_RANDOM,
+                 .params = {.move = {.min = 3, .max = 5}}}}},
+    {.name = "Cannon",
+     .speed = 80,
+     .charges = 15,
+     .burst = 1,
+     .range = {{
+                   .range = 10,
+                   .hit = 80,
+                   .dmg = {.min = 20, .max = 50},
+               },
+               {
+                   .range = 30,
+                   .hit = 70,
+                   .dmg = {.min = 10, .max = 40},
+               },
+               {
+                   .range = 40,
+                   .hit = 60,
+                   .dmg = {.min = 5, .max = 35},
+               },
+               {
+                   .range = 50,
+                   .hit = 50,
+                   .dmg = {.min = 0, .max = 30},
+               }
+
+     },
+     .effect = {{.type = SPELL_EFFECT_PUSH,
+                 .params = {.move = {.min = 3, .max = 3}}}}}};
+
+static spell_t fire[] = {
+    {
+        .name = "Lance",
+        .speed = 25,
+        .charges = 5,
+        .burst = 1,
+        .range = {{
+                      .range = 15,
+                      .hit = 20,
+                      .dmg = {.min = 60, .max = 100},
+                  },
+                  {
+                      .range = 25,
+                      .hit = 50,
+                      .dmg = {.min = 50, .max = 100},
+                  },
+                  {
+                      .range = 45,
+                      .hit = 60,
+                      .dmg = {.min = 40, .max = 100},
+                  },
+                  {
+                      .range = 60,
+                      .hit = 65,
+                      .dmg = {.min = 30, .max = 80},
+                  }},
+    },
+    {.name = "Fireball",
+     .speed = 55,
+     .charges = 10,
+     .burst = 1,
+     .range = {{
+                   .range = 10,
+                   .hit = 80,
+                   .dmg = {.min = 40, .max = 60},
+               },
+               {
+                   .range = 30,
+                   .hit = 50,
+                   .dmg = {.min = 40, .max = 60},
+               },
+               {
+                   .range = 50,
+                   .hit = 30,
+                   .dmg = {.min = 40, .max = 60},
+               }},
+     .splash = {.radius_step = 2, .drop_of = 1, .dmg = {.min = 10, .max = 20}
+
+     }
+
+    }};
+
+static spell_t *by_id = NULL;
+static void admin(spell_t *s, enum portal_type kind, uint8_t num) {
+  static uint8_t id = 0;
+
+  for (uint8_t i = 0; i < num; i++) {
+    uint8_t max_ranges = sizeof(s[i].range) / sizeof(struct spell_range);
+    uint8_t max_effects = sizeof(s[i].effect) / sizeof(struct spell_effect);
+
+    if (s[i].id == 0) {
+      id++;
+      s[i].id = id;
+      if (by_id != NULL) {
+        by_id[id] = s[i];
+      }
+
+      s[i].num_ranges = 0;
+      for (uint8_t j = 0; j < max_ranges; j++) {
+        if (s[i].range[j].range >= s[i].max_range) {
+          s[i].num_ranges++;
+          s[i].max_range = s[i].range[j].range;
+        }
+      }
+      s[i].num_effects = 0;
+      for (uint8_t j = 0; j < max_effects; j++) {
+        if (s[i].effect[j].type > 0) {
+          s[i].num_effects++;
+        }
+      }
+    }
+    s[i].kind = kind;
+  }
+}
+
+const spell_t *spell_get_kind(enum portal_type type, uint8_t *num_spells) {
+
+  switch (type) {
+  case PORTAL_WATER:
+    *num_spells = sizeof(water) / sizeof(spell_t);
+    admin(water, type, *num_spells);
+    return water;
+  case PORTAL_EARTH:
+    *num_spells = sizeof(earth) / sizeof(spell_t);
+    admin(earth, type, *num_spells);
+    return earth;
+  case PORTAL_AIR:
+    *num_spells = sizeof(air) / sizeof(spell_t);
+    admin(air, type, *num_spells);
+    return air;
+  case PORTAL_FIRE:
+    admin(fire, type, *num_spells);
+    *num_spells = sizeof(fire) / sizeof(spell_t);
+    return fire;
+  default:
+    *num_spells = 0;
+    return NULL;
+  }
+}
+
+void spell_init(void) {
+  uint8_t num;
+
+  if (by_id == NULL) {
+    uint8_t spell_count = 0;
+
+    spell_count += sizeof(water) / sizeof(spell_t);
+    spell_count += sizeof(earth) / sizeof(spell_t);
+    spell_count += sizeof(air) / sizeof(spell_t);
+    spell_count += sizeof(fire) / sizeof(spell_t);
+
+    /* id 0 is always no spell */
+    by_id = calloc(spell_count + 1, sizeof(spell_t));
+  }
+
+  spell_get_kind(PORTAL_WATER, &num);
+  spell_get_kind(PORTAL_EARTH, &num);
+  spell_get_kind(PORTAL_AIR, &num);
+  spell_get_kind(PORTAL_FIRE, &num);
+}
+
+const spell_t *spell_get_random(enum portal_type type) {
+  uint8_t num;
+  switch (type) {
+  case PORTAL_WATER:
+    num = sizeof(water) / sizeof(spell_t);
+    return &water[rand() % num];
+  case PORTAL_EARTH:
+    num = sizeof(earth) / sizeof(spell_t);
+    return &earth[rand() % num];
+  case PORTAL_AIR:
+    num = sizeof(air) / sizeof(spell_t);
+    return &air[rand() % num];
+  case PORTAL_FIRE:
+    num = sizeof(fire) / sizeof(spell_t);
+    return &fire[rand() % num];
+  default:
+    return NULL;
+  }
+}
+
+const spell_t *spell_get_by_id(uint8_t id) {
+
+  if (by_id == NULL || id == 0) {
+    return NULL;
+  }
+
+  return &by_id[id];
+}
