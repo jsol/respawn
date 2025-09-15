@@ -1,0 +1,32 @@
+#include <raylib.h>
+
+enum asset {
+
+ASSET_BLINK_AIR,
+
+ASSET_BLINK_EARTH,
+
+ASSET_BLINK_FIRE,
+
+ASSET_BLINK_WATER,
+
+ASSET_CAST,
+
+ASSET_DYING,
+
+ASSET_GROWING_BALL,
+
+ASSET_MOVE1,
+
+ASSET_MOVE2,
+
+ASSET_SOURCERER2,
+
+ASSET_SOURCERER,
+
+ASSET_WALL,
+
+};
+
+
+Image asset_get(enum asset);

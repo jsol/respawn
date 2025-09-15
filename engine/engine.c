@@ -127,6 +127,9 @@ static bool players_ready(engine_t *ctx) {
       continue;
     }
     msg = player_server_get_msg(&ctx->players[i]);
+    if (msg != NULL) {
+      printf("GOT MESSAGE TYPE %u, TICK %u FROM %u\n", msg->type, msg->tick, i);
+    }
     if (msg != NULL && msg->type == ctx->waiting[i].type &&
         ctx->waiting[i].tick == msg->tick) {
       ctx->waiting[i].tick = 0;
@@ -137,6 +140,36 @@ static bool players_ready(engine_t *ctx) {
     return false;
   }
   return true;
+}
+
+static void resolve_deaths(engine_t *ctx) {
+  for (uint8_t i = 0; i < ctx->player_count; i++) {
+    incident_t *inc;
+    player_t *p = &ctx->players[i];
+
+    if (p->health > 0) {
+      p->injured_by = 0;
+      continue;
+    }
+
+    for (uint8_t j = 0; j < ctx->player_count; j++) {
+      if (p->injured_by & (1 << j)) {
+        if (j == i) {
+          p->kills--;
+        } else {
+          ctx->players[j].kills++;
+        }
+      }
+    }
+
+    inc = incident_new(ctx->incidents);
+    inc->type = INCIDENT_PLAYER_KILLED;
+    inc->from = p->position;
+    inc->player_origin = p;
+
+    player_killed(p);
+    player_position_update(ctx, p->id, POSITION_UNKNOWN, DIRECTION_ANY);
+  }
 }
 
 static void clear_waiting(struct waiting *w) {
@@ -205,9 +238,9 @@ static bool spawn_reply(engine_t *ctx, uint8_t id) {
     facing = DIRECTION_NORTH;
   }
 
-  map_set_player(ctx->map, pos);
-
   player_spawn(&ctx->players[id], pos, facing);
+  map_set_player(ctx->map, pos);
+  ctx->players[id].los = map_line_of_sight(ctx->map, pos, facing);
 
   printf("Spawned player %d\n", id);
 
@@ -270,19 +303,28 @@ static void resolve_moves(engine_t *ctx) {
       facing = DIRECTION_NORTH;
     }
 
+    incident_t *inc = incident_new(ctx->incidents);
+    inc->type = INCIDENT_PLAYER_MOVE;
+    inc->player_origin = &ctx->players[i];
+    inc->from = ctx->players[i].position;
+    incident_new_target(inc, pos);
+
     player_position_update(ctx, i, pos, facing);
 
     /* Update spells if positioned on a portal */
 
     if (map_is_portal(ctx->map, p->position)) {
       portal_t *portal;
+      incident_t *incident;
 
       portal = portals_get_at(ctx->portals, p->position);
 
-      p->spells[portal->kind] =
-          portal_get_spell(portal, ctx->turns + 3 * ctx->player_count);
+      p->spells[portal->kind] = portal_get_spell(portal, ctx->turns + 3);
       if (p->spells[portal->kind] != NULL) {
         p->charges[portal->kind] = p->spells[portal->kind]->charges;
+        incident = incident_new(ctx->incidents);
+        incident->type = INCIDENT_PORTAL;
+        incident->from = p->position;
       } else {
         p->charges[portal->kind] = 0;
       }
@@ -291,30 +333,29 @@ static void resolve_moves(engine_t *ctx) {
 }
 
 void add_portals_to_map_msg(engine_t *ctx, message_t *msg) {
-  map_opts_t *portals;
   uint8_t count = 0;
+  uint8_t num = portals_num(ctx->portals);
 
-  portals = map_portals(ctx->map, NULL);
-  msg->body.map.portals =
-      malloc(portals->size * sizeof(*msg->body.map.portals));
+  msg->body.map.portals = malloc(num * sizeof(*msg->body.map.portals));
 
-  for (uint32_t i = 0; i < portals->size; i++) {
+  for (uint32_t i = 0; i < num; i++) {
     portal_t *p;
 
-    p = portals_get_at(ctx->portals, portals->data[i]);
+    p = portals_get(ctx->portals, i);
     if (p == NULL) {
       continue;
     }
 
-    msg->body.map.portals[count].pos = portals->data[i];
+    msg->body.map.portals[count].pos = p->position;
     msg->body.map.portals[count].kind = p->kind;
+
+    printf("Sending initial portal data (%d,%d) -> %u\n", p->position.x,
+           p->position.y, p->kind);
     count++;
   }
   msg->body.map.num_portals = count;
 
   msg->body.map.num_players = ctx->player_count;
-
-  map_opts_free(portals);
 }
 
 static message_t *build_player_update(engine_t *ctx, player_t *p) {
@@ -344,8 +385,13 @@ static message_t *build_player_update(engine_t *ctx, player_t *p) {
     }
   }
 
-  map_opts_export(p->los, &msg->body.player_update.los.opts,
-                  &msg->body.player_update.los.size);
+  if (p->los != NULL) {
+    map_opts_export(p->los, &msg->body.player_update.los.opts,
+                    &msg->body.player_update.los.size);
+  } else {
+    msg->body.player_update.los.opts = NULL;
+    msg->body.player_update.los.size = 0;
+  }
 
   msg->body.player_update.others =
       malloc(ctx->player_count * sizeof(*msg->body.player_update.others));
@@ -354,8 +400,9 @@ static message_t *build_player_update(engine_t *ctx, player_t *p) {
   for (uint8_t i = 0; i < ctx->player_count; i++) {
     player_t *other;
     other = &ctx->players[i];
-    if (other->id != p->id || !(player_is_tagged(p, i) ||
-                                map_opts_contains(p->los, other->position))) {
+    if (p->health > 0 &&
+        (other->id == p->id || !(player_is_tagged(p, i) ||
+                                 map_opts_contains(p->los, other->position)))) {
       continue;
     }
 
@@ -386,6 +433,7 @@ static message_t *build_player_update(engine_t *ctx, player_t *p) {
   msg->body.player_update.portals =
       malloc(portals->size * sizeof(*msg->body.player_update.portals));
   count = 0;
+
   for (uint32_t i = 0; i < portals->size; i++) {
     portal_t *p;
 
@@ -400,7 +448,10 @@ static message_t *build_player_update(engine_t *ctx, player_t *p) {
         p->spell != NULL ? p->spell->id : 0;
     count++;
   }
+
   msg->body.player_update.num_portals = count;
+
+  incident_add_to_message(ctx->incidents, p, msg);
 
   map_opts_free(portals);
 
@@ -420,6 +471,7 @@ static void update_players(engine_t *ctx) {
 
     player_server_send_msg(&ctx->players[i], msg);
   }
+  incident_ctx_clear(ctx->incidents);
 }
 
 static void ask_move(engine_t *ctx, uint8_t id) {
@@ -456,7 +508,6 @@ static void ask_fight(engine_t *ctx) {
 
     for (uint8_t j = 0; j < PORTAL_NONE; j++) {
       map_opts_t *in_range;
-      uint32_t spell_range;
       const spell_t *spell;
 
       if (p->spells[j] == NULL || p->charges[j] == 0) {
@@ -495,6 +546,9 @@ static bool verify_spell(engine_t *ctx, const spell_t *spell, player_t *p,
     return false;
   }
 
+  printf("Verifying spell %s ( id %u), num ranges %u, max range %d\n",
+         spell->name, spell->id, spell->num_ranges, spell->max_range);
+
   if (!map_within_distance(ctx->map, p->position, target,
                            spell->range[spell->num_ranges - 1].range)) {
     return false;
@@ -507,33 +561,369 @@ static bool verify_spell(engine_t *ctx, const spell_t *spell, player_t *p,
   return true;
 }
 
-static void apply_dmg_at(engine_t *ctx, incident_t *incident, player_t *p,
-                         int8_t dmg_min, int8_t dmg_max, pos_t target,
-                         bool selfdmg) {
+static int8_t get_player_mod(player_t *p, enum spell_effect_types type) {
+  int8_t total = 0;
+
+  for (struct player_effect *eff = p->effects; eff != NULL; eff = eff->next) {
+    if (eff->eff.type == type) {
+      total += eff->eff.params.mod.value;
+    }
+  }
+  return total;
+}
+
+static void apply_dmg_at(engine_t *ctx, incident_target_t *incident_target,
+                         player_t *p, int8_t dmg_min, int8_t dmg_max,
+                         pos_t target, bool selfdmg) {
   int8_t dmg;
 
   if (dmg_max <= 0) {
+    printf("MAx dmg < 0\n");
     return;
   }
 
   for (uint8_t i = 0; i < ctx->player_count; i++) {
     player_t *other = &ctx->players[i];
-    incident_effect_t *eff = incident_new_effect(incident);
+    incident_effect_t *eff;
 
     if (!selfdmg && p->id == other->id) {
       continue;
     }
+
+    if (!POS_EQ(target, other->position)) {
+      continue;
+    }
+
+    if (other->health == 0 && other->injured_by == 0) {
+      /* has been dead as before this round of damage */
+      continue;
+    }
+
     dmg = (rand() % (dmg_max - dmg_min)) + 1 + dmg_min;
 
-    dmg += other->to_dmg_mod;
+    dmg += get_player_mod(other, SPELL_EFFECT_DAMAGE_MOD);
 
+    if (dmg < 0) {
+      dmg = 0;
+    }
+
+    eff = incident_new_effect(incident_target);
     eff->type = SPELL_EFFECT_DAMAGE;
     eff->victim = &ctx->players[i];
+    eff->at = target;
     eff->data.dmg = dmg;
+    printf("ADDING EFFECT FOR %d DAMAGE FOR PLAYER AT (%d,%d)\n", eff->data.dmg,
+           eff->victim->position.x, eff->victim->position.y);
 
     if (dmg > 0) {
       other->health -= dmg;
+      if (other->health < 0) {
+        other->health = 0;
+      }
       other->injured_by |= (1 << p->id);
+    }
+  }
+}
+
+static pos_t get_new_target(engine_t *ctx, pos_t from, pos_t to) {
+  uint8_t steps;
+
+  steps =
+      ((to.x - from.x) * (to.x - from.x) + (to.y - from.y) * (to.y - from.y));
+
+  steps = ((rand() % 100) * steps) / 100;
+
+  if (steps < 3) {
+    steps = 3;
+  }
+
+  if (steps > 30) {
+    steps = 30;
+  }
+
+  for (uint8_t i = 0; i < steps; i++) {
+    coord_t step;
+
+    if (abs(to.x - from.x) > abs(to.y - from.y)) {
+      step = to.y > from.y ? 1 : -1;
+
+      to.y += step;
+    } else {
+      step = to.x > from.x ? 1 : -1;
+
+      to.x += step;
+    }
+  }
+  return map_ends_up_at(ctx->map, from, to);
+}
+
+static void apply_splash(engine_t *ctx, const struct spell_effect *eff,
+                         pos_t target, incident_target_t *inc_targ,
+                         player_t *caster) {
+
+  map_opts_t *los = map_line_of_sight(ctx->map, target, DIRECTION_ANY);
+  map_opts_delete(los, target); // Not hitting target again...
+  map_opts_t *splashed = map_players(ctx->map, los);
+
+  for (uint32_t s = 0; s < splashed->size; s++) {
+    coord_t splash_min;
+    coord_t splash_max;
+    uint32_t dist_square =
+        map_distance_squared(ctx->map, target, splashed->data[s]);
+
+    coord_t dist = (coord_t)sqrt((double)dist_square);
+    splash_min =
+        eff->params.splash.dmg.min -
+        ((dist / eff->params.splash.radius_step) * eff->params.splash.drop_of);
+    splash_max =
+        eff->params.splash.dmg.max -
+        ((dist / eff->params.splash.radius_step) * eff->params.splash.drop_of);
+
+    apply_dmg_at(ctx, inc_targ, caster, splash_min, splash_max,
+                 splashed->data[s], true);
+  }
+
+  map_opts_free(los);
+  map_opts_free(splashed);
+}
+
+static void apply_push_pull(engine_t *ctx, const struct spell_effect *eff,
+                            pos_t target, incident_target_t *inc_targ,
+                            player_t *caster) {
+  pos_t new_pos;
+  coord_t steps;
+  incident_effect_t *inc_eff;
+
+  if (POS_EQ(target, caster->position)) {
+    return;
+  }
+
+  for (uint8_t i = 0; i < ctx->player_count; i++) {
+    player_t *candidate;
+    candidate = &ctx->players[i];
+    if (!POS_EQ(candidate->position, target)) {
+      continue;
+    }
+
+    if (eff->params.move.max > eff->params.move.min) {
+      steps = eff->params.move.min +
+              (rand() % (eff->params.move.max - eff->params.move.min));
+    } else {
+      steps = eff->params.move.max;
+    }
+    if (eff->type == SPELL_EFFECT_PULL) {
+      new_pos = map_pull(ctx->map, caster->position, target, steps);
+    } else {
+      new_pos = map_push(ctx->map, caster->position, target, steps);
+    }
+    inc_eff = incident_new_effect(inc_targ);
+    inc_eff->victim = candidate;
+    inc_eff->at = candidate->position;
+    inc_eff->data.new_pos = new_pos;
+    inc_eff->type = eff->type;
+    candidate->position = new_pos;
+  }
+}
+
+static void apply_push_random(engine_t *ctx, const struct spell_effect *eff,
+                              pos_t target, incident_target_t *inc_targ,
+                              player_t *caster) {
+  pos_t new_pos;
+  map_opts_t *outer;
+  map_opts_t *inner;
+  incident_effect_t *inc_eff;
+
+  coord_t max = eff->params.move.max;
+  coord_t min = eff->params.move.max;
+
+  if (max <= min) {
+    if (min > 0) {
+      min--;
+    } else {
+      max++;
+    }
+  }
+
+  outer = map_valid_moves(ctx->map, target, max);
+  inner = map_valid_moves(ctx->map, target, min);
+  map_opts_delete_list(outer, inner);
+
+  if (outer->size == 0) {
+    return;
+  }
+
+  for (uint8_t i = 0; i < ctx->player_count; i++) {
+    player_t *candidate;
+
+    candidate = &ctx->players[i];
+    if (!POS_EQ(candidate->position, target)) {
+      continue;
+    }
+
+    map_opts_shuffle(outer);
+    new_pos = outer->data[i];
+    inc_eff = incident_new_effect(inc_targ);
+    inc_eff->victim = candidate;
+    inc_eff->at = candidate->position;
+    inc_eff->data.new_pos = new_pos;
+    inc_eff->type = SPELL_EFFECT_PUSH_RANDOM;
+    candidate->position = new_pos;
+  }
+  map_opts_free(outer);
+  map_opts_free(inner);
+}
+
+static void apply_heal(engine_t *ctx, const struct spell_effect *eff,
+                       pos_t target, incident_target_t *inc_targ,
+                       player_t *caster) {
+  incident_effect_t *inc_eff;
+
+  for (uint8_t i = 0; i < ctx->player_count; i++) {
+    player_t *candidate;
+    int8_t amount;
+
+    candidate = &ctx->players[i];
+    if (!POS_EQ(candidate->position, target)) {
+      continue;
+    }
+
+    amount = eff->params.heal.min +
+             (rand() % (eff->params.heal.max - eff->params.heal.min));
+
+    inc_eff = incident_new_effect(inc_targ);
+    inc_eff->victim = candidate;
+    inc_eff->at = candidate->position;
+    inc_eff->data.dmg = amount;
+    inc_eff->type = SPELL_EFFECT_HEAL;
+    candidate->health += amount;
+    if (candidate->health > 100) {
+      candidate->health = 100;
+    }
+  }
+}
+static void apply_poison(engine_t *ctx, const struct spell_effect *eff,
+                         pos_t target, incident_target_t *inc_targ,
+                         player_t *caster) {
+  incident_effect_t *inc_eff;
+
+  for (uint8_t i = 0; i < ctx->player_count; i++) {
+    player_t *candidate;
+
+    candidate = &ctx->players[i];
+    if (!POS_EQ(candidate->position, target)) {
+      continue;
+    }
+
+    inc_eff = incident_new_effect(inc_targ);
+    inc_eff->victim = candidate;
+    inc_eff->at = candidate->position;
+    inc_eff->data.duration = eff->params.poison.duration;
+    inc_eff->type = SPELL_EFFECT_POISON;
+
+    player_add_effect(candidate, *eff, inc_eff->data,
+                      eff->params.poison.duration, caster);
+  }
+}
+
+static void apply_poison_effects(engine_t *ctx) {
+  for (uint8_t i = 0; i < ctx->player_count; i++) {
+    player_t *candidate;
+    int8_t dmg;
+
+    candidate = &ctx->players[i];
+
+    for (struct player_effect *e = candidate->effects; e != NULL; e = e->next) {
+      incident_effect_t *eff;
+      incident_target_t *inc_targ;
+      incident_t *inc;
+
+      if (e->eff.type != SPELL_EFFECT_POISON) {
+        continue;
+      }
+
+      if (candidate->health <= 0 && candidate->injured_by == 0) {
+        continue;
+      }
+      dmg = (rand() % (e->eff.params.poison.max - e->eff.params.poison.min)) +
+            1 + e->eff.params.poison.min;
+
+      inc = incident_new(ctx->incidents);
+      inc->type = INCIDENT_DELAYED_EFFECT;
+      inc_targ = incident_new_target(inc, candidate->position);
+      eff = incident_new_effect(inc_targ);
+      eff->type = SPELL_EFFECT_DAMAGE;
+      eff->victim = &ctx->players[i];
+      eff->at = candidate->position;
+      eff->data.dmg = dmg;
+
+      if (dmg > 0) {
+        candidate->health -= dmg;
+        candidate->injured_by |= (1 << e->caster->id);
+        if (candidate->health < 0) {
+          candidate->health = 0;
+        }
+      }
+    }
+  }
+  resolve_deaths(ctx);
+}
+
+static void apply_mod(engine_t *ctx, const struct spell_effect *eff,
+                      pos_t target, incident_target_t *inc_targ,
+                      player_t *caster) {
+  incident_effect_t *inc_eff;
+
+  for (uint8_t i = 0; i < ctx->player_count; i++) {
+    player_t *candidate;
+
+    candidate = &ctx->players[i];
+    if (!POS_EQ(candidate->position, target)) {
+      continue;
+    }
+
+    inc_eff = incident_new_effect(inc_targ);
+    inc_eff->victim = candidate;
+    inc_eff->at = candidate->position;
+    inc_eff->data.duration = eff->params.mod.duration;
+    inc_eff->type = eff->type;
+
+    player_add_effect(candidate, *eff, inc_eff->data, eff->params.mod.duration,
+                      caster);
+  }
+}
+
+static void apply_effects(engine_t *ctx, const spell_t *spell, pos_t target,
+                          incident_target_t *inc_target, player_t *caster) {
+
+  for (uint8_t i = 0; i < spell->num_effects; i++) {
+    switch (spell->effect[i].type) {
+    case SPELL_EFFECT_SPLASH:
+      apply_splash(ctx, &spell->effect[i], target, inc_target, caster);
+      break;
+    case SPELL_EFFECT_DAMAGE:
+      /* Already handled */
+      break;
+    case SPELL_EFFECT_PUSH:
+    case SPELL_EFFECT_PULL:
+      apply_push_pull(ctx, &spell->effect[i], target, inc_target, caster);
+      break;
+    case SPELL_EFFECT_PUSH_RANDOM:
+      apply_push_random(ctx, &spell->effect[i], target, inc_target, caster);
+      break;
+    case SPELL_EFFECT_HEAL:
+      apply_heal(ctx, &spell->effect[i], target, inc_target, caster);
+      break;
+    case SPELL_EFFECT_POISON:
+      apply_poison(ctx, &spell->effect[i], target, inc_target, caster);
+      break;
+    case SPELL_EFFECT_DAMAGE_MOD:
+    case SPELL_EFFECT_HIT_MOD:
+    case SPELL_EFFECT_BE_HIT_MOD:
+      apply_mod(ctx, &spell->effect[i], target, inc_target, caster);
+      break;
+    case SPELL_EFFECT_OBSCURE:
+      /* TODO */
+      break;
     }
   }
 }
@@ -545,45 +935,59 @@ static void apply_spell(engine_t *ctx, const spell_t *spell, player_t *p,
   int8_t dmg_min = 0;
   int8_t dmg_max = 0;
   int8_t hit = 0;
+  coord_t dist_square;
   incident_t *incident = incident_new(ctx->incidents);
 
-  for (uint i = 0; i < spell->num_ranges; i++) {
-    if (map_within_distance(ctx->map, p->position, target,
-                            spell->range[i].range)) {
-      dmg_min = spell->range[i].dmg.min;
-      dmg_max = spell->range[i].dmg.max;
-      hit = spell->range[i].hit;
-      break;
-    }
-  }
+  printf("Applying spell with id %u, %u num_ranges, max_range %d\n", spell->id,
+         spell->num_ranges, spell->max_range);
+
+  dist_square = map_distance_squared(ctx->map, p->position, target);
+
+  spell_get_stats(spell, dist_square, &hit, &dmg_min, &dmg_max);
 
   p->activated_spell = spell->kind;
   p->charges[spell->kind]--;
 
+  incident->type = INCIDENT_SPELL;
   incident->player_origin = p;
   incident->from = p->position;
+  incident->spell = spell;
 
   /** TODO: Move to spell effects? */
-
   for (uint8_t i = 0; i < ctx->player_count; i++) {
     other = &ctx->players[i];
     if (other->id != p->id && POS_EQ(other->position, target)) {
-      hit += other->to_be_hit_mod;
+      hit += get_player_mod(other, SPELL_EFFECT_BE_HIT_MOD);
     }
   }
 
-  hit += p->to_hit_mod;
+  hit += get_player_mod(other, SPELL_EFFECT_HIT_MOD);
 
   for (int8_t i = 0; i < spell->burst; i++) {
+    incident_target_t *target_incident;
     pos_t burst_target = target;
+
     if (hit > 0 && rand() % 100 < hit) {
       /* rand() starts at 0, so < gives fair % */
-      apply_dmg_at(ctx, incident, p, dmg_min, dmg_max, target, false);
+      printf("Spell hit (%d)\n", hit);
+      target_incident = incident_new_target(incident, target);
+      apply_dmg_at(ctx, target_incident, p, dmg_min, dmg_max, target, false);
     } else {
+      printf("Spell miss (%d)\n", hit);
       switch (spell->miss) {
-      case SPELL_MISS_LOS:
-        /* TODO */
-        break;
+      case SPELL_MISS_LOS: {
+        int8_t miss_dmg_min = 0;
+        int8_t miss_dmg_max = 0;
+
+        burst_target = get_new_target(ctx, p->position, target);
+        target_incident = incident_new_target(incident, burst_target);
+        dist_square = map_distance_squared(ctx->map, p->position, burst_target);
+        spell_get_stats(spell, dist_square, NULL, &miss_dmg_min, &miss_dmg_max);
+
+        apply_dmg_at(ctx, target_incident, p, dmg_min, dmg_max, burst_target,
+                     true);
+
+      } break;
       case SPELL_MISS_BOUNCE: {
         map_opts_t *opts;
 
@@ -591,7 +995,9 @@ static void apply_spell(engine_t *ctx, const spell_t *spell, player_t *p,
         map_opts_delete(opts, target);
         map_opts_shuffle(opts);
         burst_target = opts->data[i];
-        apply_dmg_at(ctx, incident, p, dmg_min, dmg_max, burst_target, true);
+        target_incident = incident_new_target(incident, burst_target);
+        apply_dmg_at(ctx, target_incident, p, dmg_min, dmg_max, burst_target,
+                     true);
 
         map_opts_free(opts);
       } break;
@@ -603,40 +1009,11 @@ static void apply_spell(engine_t *ctx, const spell_t *spell, player_t *p,
       }
     }
 
-    /*Handle splash */
-    /* TODO: refactor to func */
-    if (spell->splash.radius_step == 0) {
-      continue;
-    }
-    map_opts_t *los = map_line_of_sight(ctx->map, burst_target, DIRECTION_ANY);
-    map_opts_delete(los, burst_target); // Not hitting target again...
-    map_opts_t *splashed = map_players(ctx->map, los);
-
-    for (uint32_t s = 0; s < splashed->size; s++) {
-      uint32_t dist_square =
-          map_distance_squared(ctx->map, burst_target, splashed->data[i]);
-
-      coord_t dist = (int16_t)sqrt((double)dist_square);
-      coord_t splash_min;
-      coord_t splash_max;
-
-      splash_min = spell->splash.dmg.min -
-                   ((dist / spell->splash.radius_step) * spell->splash.drop_of);
-      splash_max = spell->splash.dmg.max -
-                   ((dist / spell->splash.radius_step) * spell->splash.drop_of);
-
-      apply_dmg_at(ctx, incident, p, splash_min, splash_max, splashed->data[s],
-                   true);
-    }
-
-    map_opts_free(los);
-    map_opts_free(splashed);
+    apply_effects(ctx, spell, burst_target, target_incident, p);
   }
 }
 
 static void resolve_fight(engine_t *ctx) {
-
-  incident_ctx_clear(ctx->incidents);
 
   while (true) {
     player_t *acting = NULL;
@@ -716,31 +1093,9 @@ static void resolve_fight(engine_t *ctx) {
     }
 
     /* All damage applied, check if anybody died */
-
-    for (uint8_t i = 0; i < ctx->player_count; i++) {
-      player_t *p = &ctx->players[i];
-
-      if (p->health > 0) {
-        p->injured_by = 0;
-        continue;
-      }
-
-      for (uint8_t j = 0; j < ctx->player_count; j++) {
-        if (p->injured_by & (1 << j)) {
-          if (j == i) {
-            p->kills--;
-          } else {
-            ctx->players[j].kills++;
-          }
-        }
-      }
-
-      player_killed(p);
-      player_position_update(ctx, p->id, POSITION_UNKNOWN, DIRECTION_ANY);
-    }
+    resolve_deaths(ctx);
   }
 }
-
 void engine_tick(engine_t *ctx) {
   message_t *msg;
 
@@ -835,6 +1190,10 @@ void engine_tick(engine_t *ctx) {
   case STATE_WAIT_FIGHT:
     if (players_ready(ctx)) {
       resolve_fight(ctx);
+      apply_poison_effects(ctx);
+      for (uint8_t i = 0; i < ctx->player_count; i++) {
+        player_time_effects(&ctx->players[i]);
+      }
       update_players(ctx);
       ctx->turns++;
       portals_activate(ctx->portals, ctx->turns);

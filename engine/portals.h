@@ -17,6 +17,9 @@ portals_ctx_t *portals_new(uint32_t capacity);
 portals_ctx_t *portals_new_from_message(message_t *msg);
 void portals_update(portals_ctx_t *ctx, message_t *msg);
 
+uint8_t portals_num(portals_ctx_t *ctx);
+portal_t *portals_get(portals_ctx_t *ctx, uint8_t id);
+
 void portals_add_kind(portals_ctx_t *ctx, enum portal_type kind, pos_t pos);
 
 portal_t *portals_get_at(portals_ctx_t *ctx, pos_t pos);

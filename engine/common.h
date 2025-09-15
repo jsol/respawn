@@ -5,6 +5,7 @@
 #define POS_EQ(a, b) (a.x == b.x && a.y == b.y)
 #define POS_IS_UNKNOWN(a) (a.x == -1 || a.y == -1)
 #define POSITION_UNKNOWN common_position_unknown()
+#define PLAYER_UNKNOWN 255
 
 enum portal_type {
   PORTAL_AIR = 0,
@@ -36,3 +37,4 @@ typedef struct {
 pos_t
 common_position_unknown(void);
 
+const char* kind_string(enum portal_type type);

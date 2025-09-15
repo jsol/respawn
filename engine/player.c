@@ -7,19 +7,41 @@
 #include "player.h"
 #include "spell.h"
 
+static struct player_effect *time_effect(struct player_effect *eff) {
+  struct player_effect *next;
+
+  if (eff == NULL) {
+    return NULL;
+  }
+
+  eff->duration--;
+
+  if (eff->duration > 0) {
+    eff->next = time_effect(eff->next);
+
+    return eff;
+  }
+
+  next = eff->next;
+  free(eff);
+
+  return time_effect(next);
+}
+
 static void reset(player_t *ctx) {
-  ctx->position.x = -1;
-  ctx->position.y = -1;
   ctx->health = 0;
-  ctx->to_dmg_mod = 0;
-  ctx->to_be_hit_mod = 0;
-  ctx->to_hit_mod = 0;
   ctx->injured_by = 0;
   ctx->tagged = 0;
   ctx->activated_spell = PORTAL_NONE;
 
   map_opts_free(ctx->los);
   ctx->los = NULL;
+  ctx->los = map_opts_new(1);
+
+  for (struct player_effect *eff = ctx->effects; eff != NULL; eff = eff->next) {
+    eff->duration = 0;
+  }
+  ctx->effects = time_effect(ctx->effects);
 
   for (uint8_t i = 0; i < PORTAL_NONE; i++) {
     ctx->spells[i] = NULL;
@@ -65,6 +87,33 @@ bool player_is_tagged(player_t *ctx, uint8_t other_id) {
 
 void player_clear_tags(player_t *ctx) { ctx->tagged = 0; }
 
+void player_add_effect(player_t *ctx, struct spell_effect from,
+                       spell_effect_value_t value, int duration,
+                       player_t *caster) {
+
+  struct player_effect *eff;
+
+  eff = calloc(1, sizeof(*eff));
+
+  eff->eff = from;
+  eff->value = value;
+  eff->duration = duration;
+  eff->caster = caster;
+
+  if (ctx->effects == NULL) {
+    ctx->effects = eff;
+  } else {
+    struct player_effect *e;
+    for (e = ctx->effects; e->next != NULL; e = e->next)
+      ;
+    e->next = eff;
+  }
+}
+
+void player_time_effects(player_t *ctx) {
+  ctx->effects = time_effect(ctx->effects);
+}
+
 void player_batch_update(player_t *ctx, uint32_t num_players, message_t *msg) {
   player_t *me;
 
@@ -80,6 +129,7 @@ void player_batch_update(player_t *ctx, uint32_t num_players, message_t *msg) {
     p->deaths = msg->body.player_update.others[i].deaths;
     p->facing = msg->body.player_update.others[i].face;
     p->position = msg->body.player_update.others[i].pos;
+    p->updated = msg->tick;
 
     for (uint8_t j = 0; j < PORTAL_NONE; j++) {
       p->spells[j] =

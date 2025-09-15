@@ -263,8 +263,6 @@ map_opts_t *map_valid_moves(map_t *ctx, pos_t from, uint8_t steps) {
 
   valid_moves(ctx, opts, from, steps);
 
-  printf("Ranked size: %u\n", opts->size);
-
   ret = map_opts_ranked_to_opts(opts);
   map_opts_ranked_free(opts);
 
@@ -403,7 +401,7 @@ static void los_east(map_t *ctx, map_opts_t *opts, pos_t start) {
 }
 
 static void los_north_west(map_t *ctx, map_opts_t *opts, pos_t start) {
-  coord_t max_x = start.x + start.y +1;
+  coord_t max_x = start.x + start.y + 1;
 
   for (coord_t y = 0; y < ctx->height; y++) {
     for (coord_t x = 0; x < ctx->width && x < max_x; x++) {
@@ -450,7 +448,7 @@ static void los_north_east(map_t *ctx, map_opts_t *opts, pos_t start) {
 }
 
 static void los_south_west(map_t *ctx, map_opts_t *opts, pos_t start) {
-  coord_t max_x = start.x + (ctx->height - 1 - start.y) +1;
+  coord_t max_x = start.x + (ctx->height - 1 - start.y) + 1;
 
   for (coord_t y = ctx->height - 1; y >= 0; y--) {
     for (coord_t x = 0; x < ctx->width && x < max_x; x++) {
@@ -640,6 +638,135 @@ bool map_has_los(map_t *ctx, pos_t from, pos_t to) {
   return true;
 }
 
+pos_t map_ends_up_at(map_t *ctx, pos_t from, pos_t to) {
+  int32_t dx, dy, sx, sy, err, err2;
+  pos_t prev;
+
+  if (map_is_wall(ctx, from)) {
+    return from;
+  }
+
+  if (POS_EQ(to, from)) {
+    return to;
+  }
+
+  /* Attempts at Bresenham line drawing algorithm */
+
+  dx = abs(to.x - from.x);
+  dy = -abs(to.y - from.y);
+
+  sx = from.x < to.x ? 1 : -1;
+  sy = from.y < to.y ? 1 : -1;
+
+  err = dx + dy;
+
+  while (true) {
+    if (!in(ctx, from) || map_is_wall(ctx, from)) {
+      return prev;
+    }
+
+    prev = from;
+    err2 = err * 2;
+
+    if (err2 >= dy) {
+      err += dy;
+      from.x += sx;
+    }
+    if (err2 <= dx) {
+      err += dx;
+      from.y += sy;
+    }
+  }
+
+  return from;
+}
+pos_t map_push(map_t *ctx, pos_t from, pos_t to, coord_t steps) {
+  int32_t dx, dy, sx, sy, err, err2;
+  pos_t prev;
+
+  if (map_is_wall(ctx, from)) {
+    return from;
+  }
+
+  if (POS_EQ(to, from)) {
+    return to;
+  }
+
+  /* Attempts at Bresenham line drawing algorithm */
+
+  dx = abs(to.x - from.x);
+  dy = -abs(to.y - from.y);
+
+  sx = from.x < to.x ? 1 : -1;
+  sy = from.y < to.y ? 1 : -1;
+
+  err = dx + dy;
+
+  /* Extend the line */
+  from = to;
+
+  for (uint8_t i = 0; i < steps; i++) {
+    if (!in(ctx, from) || map_is_wall(ctx, from)) {
+      return prev;
+    }
+
+    prev = from;
+    err2 = err * 2;
+
+    if (err2 >= dy) {
+      err += dy;
+      from.x += sx;
+    }
+    if (err2 <= dx) {
+      err += dx;
+      from.y += sy;
+    }
+  }
+
+  return from;
+}
+pos_t map_pull(map_t *ctx, pos_t to, pos_t from, coord_t steps) {
+  int32_t dx, dy, sx, sy, err, err2;
+  pos_t prev;
+
+  if (map_is_wall(ctx, from)) {
+    return from;
+  }
+
+  if (POS_EQ(to, from)) {
+    return to;
+  }
+
+  /* Attempts at Bresenham line drawing algorithm */
+
+  dx = abs(to.x - from.x);
+  dy = -abs(to.y - from.y);
+
+  sx = from.x < to.x ? 1 : -1;
+  sy = from.y < to.y ? 1 : -1;
+
+  err = dx + dy;
+
+  for (uint8_t i = 0; i < steps; i++) {
+    if (!in(ctx, from) || map_is_wall(ctx, from)) {
+      return prev;
+    }
+
+    prev = from;
+    err2 = err * 2;
+
+    if (err2 >= dy) {
+      err += dy;
+      from.x += sx;
+    }
+    if (err2 <= dx) {
+      err += dx;
+      from.y += sy;
+    }
+  }
+
+  return from;
+}
 bool map_within_distance(map_t *ctx, pos_t from, pos_t to, coord_t dist) {
 
   coord_t dist2 = dist * dist;
@@ -647,7 +774,7 @@ bool map_within_distance(map_t *ctx, pos_t from, pos_t to, coord_t dist) {
   return distance(ctx, from, to) <= dist2;
 }
 
-uint32_t map_distance_squared(map_t *ctx, pos_t from, pos_t to) {
+coord_t map_distance_squared(map_t *ctx, pos_t from, pos_t to) {
 
   return distance(ctx, from, to);
 }
@@ -657,12 +784,44 @@ map_opts_t *map_reduce_to_distance(map_t *ctx, pos_t pos, map_opts_t *opts,
   map_opts_t *ret;
   coord_t dist2 = dist * dist;
 
-  printf("Checking against distance %d\n", dist2);
   ret = map_opts_new(opts->size);
   for (uint32_t i = 0; i < opts->size; i++) {
     if (distance(ctx, pos, opts->data[i]) <= dist2) {
       ret->data[ret->size] = opts->data[i];
       ret->size++;
+    }
+  }
+
+  return ret;
+}
+
+pos_t map_closest(map_t *ctx, pos_t from, map_opts_t *opts) {
+  uint32_t steps = 46;
+  map_opts_ranked_t *found;
+  pos_t ret = POSITION_UNKNOWN;
+  uint32_t rank = 0;
+
+  if (POS_IS_UNKNOWN(from)) {
+    return POSITION_UNKNOWN;
+  }
+
+  found = map_opts_ranked_new(steps * 16);
+
+  valid_moves(ctx, found, from, steps);
+
+  for (uint32_t i = 0; i < found->size; i++) {
+    for (uint32_t j = 0; j < opts->size; j++) {
+      if (!POS_EQ(opts->data[j], found->data[i].pos)) {
+        continue;
+      }
+      /*
+      printf("   (%d,%d) -> %d\n", found->data[i].pos.x, found->data[i].pos.y,
+             found->data[i].rank);
+*/
+      if (found->data[i].rank > rank) {
+        rank = found->data[i].rank;
+        ret = found->data[i].pos;
+      }
     }
   }
 

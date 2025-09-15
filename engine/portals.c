@@ -1,7 +1,7 @@
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 
-#include "map.h"
 #include "message.h"
 #include "portals.h"
 #include "spell.h"
@@ -65,10 +65,20 @@ void portals_update(portals_ctx_t *ctx, message_t *msg) {
       }
 
       portal->kind = msg->body.player_update.portals[i].kind;
-      portal->spell = spell_get_by_id(msg->body.player_update.portals[j].spell);
-      portal->activate = UINT32_MAX;
+      portal->spell = spell_get_by_id(msg->body.player_update.portals[i].spell);
     }
   }
+}
+
+uint8_t portals_num(portals_ctx_t *ctx) {
+  return ctx->size;
+}
+
+portal_t *portals_get(portals_ctx_t *ctx, uint8_t id) {
+  if (id >= ctx->size) {
+    return NULL;
+  }
+  return &ctx->data[id];
 }
 
 void portals_add_kind(portals_ctx_t *ctx, enum portal_type kind, pos_t pos) {
@@ -92,7 +102,7 @@ void portals_add_kind(portals_ctx_t *ctx, enum portal_type kind, pos_t pos) {
 
 portal_t *portals_get_at(portals_ctx_t *ctx, pos_t pos) {
   for (uint32_t i = 0; i < ctx->size; i++) {
-    if (POS_EQ(ctx->data[i].position, ctx->data[i].position)) {
+    if (POS_EQ(pos, ctx->data[i].position)) {
       return &ctx->data[i];
     }
   }
@@ -106,13 +116,17 @@ void portals_activate(portals_ctx_t *ctx, uint32_t active) {
       ctx->data[i].spell = spell_get_random(ctx->data[i].kind);
       ctx->data[i].activate = UINT32_MAX;
     }
+
+    if (ctx->data[i].activate != UINT32_MAX) {
+      /* Ensure that portals waiting for activation does not provide spells */
+      ctx->data[i].spell = NULL;
+    }
   }
 }
 
 const spell_t *portal_get_spell(portal_t *ctx, uint32_t ready_again) {
   const spell_t *ret = ctx->spell;
 
-  ctx->spell = NULL;
   ctx->activate = ready_again;
 
   return ret;

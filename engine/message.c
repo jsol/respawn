@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "map_opts.h"
 #include "message.h"
 
 struct msg_box {
@@ -202,6 +203,13 @@ void message_unref(message_t *msg) {
     free(msg->body.player_update.los.opts);
     free(msg->body.player_update.others);
     free(msg->body.player_update.portals);
+    for (uint8_t i = 0; i < msg->body.player_update.num_events; i++) {
+      for (uint8_t j = 0; j < msg->body.player_update.events[i].num_targets;
+           j++) {
+        free(msg->body.player_update.events[i].targets[j].effects);
+      }
+      free(msg->body.player_update.events[i].targets);
+    }
     free(msg->body.player_update.events);
     break;
   default:
@@ -210,3 +218,4 @@ void message_unref(message_t *msg) {
 
   free(box);
 }
+

@@ -29,13 +29,17 @@ map_opts_t *map_valid_moves(map_t *ctx, pos_t pos, uint8_t steps);
 map_opts_t *map_empty_spaces(map_t *ctx);
 map_opts_t *map_line_of_sight(map_t *ctx, pos_t pos, enum direction dir);
 bool map_has_los(map_t *ctx, pos_t from, pos_t to);
+pos_t map_ends_up_at(map_t *ctx, pos_t from, pos_t to);
+pos_t map_push(map_t *ctx, pos_t from, pos_t to, coord_t steps);
+pos_t map_pull(map_t *ctx, pos_t from, pos_t to, coord_t steps);
+pos_t map_closest(map_t *ctx, pos_t from, map_opts_t *opts);
 
 map_opts_t *map_players(map_t *ctx, map_opts_t *at);
 map_opts_t *map_portals(map_t *ctx, map_opts_t *at);
 
 bool map_within_distance(map_t *ctx, pos_t from, pos_t to, coord_t range);
 
-uint32_t map_distance_squared(map_t *ctx, pos_t from, pos_t to);
+coord_t map_distance_squared(map_t *ctx, pos_t from, pos_t to);
 
 map_opts_t *map_reduce_to_distance(map_t *ctx, pos_t pos, map_opts_t *opts,
                                    coord_t dist);

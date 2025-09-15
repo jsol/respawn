@@ -13,6 +13,14 @@ typedef void (*player_send_msg_func_t)(void *user_data, message_t *msg);
 typedef message_t *(*player_get_msg_func_t)(void *user_data);
 typedef void (*player_new_msg_func_t)(message_t *message, void *user_data);
 
+struct player_effect {
+  struct spell_effect eff;
+  spell_effect_value_t value;
+  int duration;
+  player_t *caster;
+  struct player_effect *next;
+};
+
 struct player_ctx {
   uint32_t id;
   enum direction facing;
@@ -22,6 +30,7 @@ struct player_ctx {
   int8_t health;
   int8_t kills;
   int8_t deaths;
+  uint32_t updated;
 
   map_opts_t *los;
 
@@ -30,9 +39,7 @@ struct player_ctx {
   uint32_t injured_by;
   uint32_t tagged;
 
-  int8_t to_be_hit_mod;
-  int8_t to_hit_mod;
-  int8_t to_dmg_mod;
+  struct player_effect *effects;
 
   struct {
     player_send_msg_func_t client_send;
@@ -50,6 +57,11 @@ struct player_ctx {
 
 player_t *player_new(uint32_t id);
 player_t *player_create(uint32_t num);
+
+void player_add_effect(player_t *ctx, struct spell_effect from,
+                       spell_effect_value_t value, int duration,
+                       player_t *caster);
+void player_time_effects(player_t *ctx);
 
 /* Note that @param firs is a pointer to the memory block from players_create */
 void player_batch_update(player_t *first, uint32_t num_players, message_t *msg);

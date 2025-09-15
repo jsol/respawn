@@ -1,0 +1,1 @@
+raylib_dep = dependency('raylib')

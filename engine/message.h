@@ -40,21 +40,28 @@ struct msg_portal_kind {
 struct applied_effect {
   uint8_t type; /*spell effect enum */
   uint8_t victim;
+  pos_t at;
+  int8_t duration;
   spell_effect_value_t data;
+};
+
+struct target {
+  pos_t target;
+  struct applied_effect *effects;
+  uint8_t num_effects;
 };
 
 struct incident {
   pos_t from;
+  uint8_t incident_type;
   uint8_t spell_kind;
   
   /* Contains the following if caster or target is in LoS */
-  pos_t to;
   uint8_t spell_id;
-
   uint8_t player_origin;
 
-  struct applied_effect *effects;
-  uint8_t num_effects;
+  struct target *targets;
+  uint8_t num_targets;
 };
 
 typedef struct {
