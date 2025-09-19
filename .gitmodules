@@ -1,0 +1,6 @@
+[submodule "subprojects/raylib"]
+	path = subprojects/raylib
+	url = https://github.com/raysan5/raylib.git
+[submodule "raygui"]
+	path = raygui
+	url = https://github.com/raysan5/raygui.git

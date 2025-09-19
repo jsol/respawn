@@ -1,11 +1,9 @@
 fs = import('fs')
 
-raylib_dep = dependency('raylib')
-
 executable(
   'gen_asset',
   ['main.c'],
-  dependencies: [raylib_dep]
+  dependencies: dependencies
 )
 
 if fs.is_dir('gen')

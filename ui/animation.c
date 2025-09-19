@@ -7,7 +7,7 @@
 #include <string.h>
 
 #include "animation.h"
-// #include "asset.h"
+#include "asset.h"
 
 #define ASSET_PATH "/home/jens/git/respawn/assets/"
 
@@ -62,21 +62,21 @@ struct animation_ctx {
   int32_t add_slot;
 };
 
-static void load_texture(const char *file, int32_t width,
+static void load_texture(enum asset asset, int32_t width,
                          struct source *target) {
   Image img;
 
-  //  img = asset_get(asset);
+  img = asset_get(asset);
 
-  img = LoadImage(file);
+  //  img = LoadImage(file);
   target->texture = LoadTextureFromImage(img);
   target->frames = img.width / width;
   target->tile_width = width;
   target->tile_height = img.height;
 
-  printf("ASSET LOADED %s (%dx%d )\n", file, img.width, img.height);
+  //  printf("ASSET LOADED %s (%dx%d )\n", file, img.width, img.height);
 
-  if (file != NULL ) {UnloadImage(img);}
+  //  if (file != NULL ) {UnloadImage(img);}
 }
 
 static Color player_color(uint8_t id) {
@@ -124,14 +124,13 @@ animation_t *animation_new(uint32_t screen_fps, uint8_t player_count) {
 
   ctx = malloc(sizeof(*ctx));
 
-  printf("NEW ANIMATION %d, %d\n",screen_fps, player_count);
+  printf("NEW ANIMATION %d, %d\n", screen_fps, player_count);
   ctx->fps = screen_fps;
   for (uint8_t i = 0; i < ANIMATION_LAST; i++) {
     ctx->src[i].id = i;
   }
 
   ctx->src[ANIMATION_DAMAGE].frames = 30;
-  /*
   load_texture(ASSET_BLINK_FIRE, 20, &ctx->src[ANIMATION_PORTAL_USE]);
   load_texture(ASSET_CAST, 40, &ctx->src[ANIMATION_SPELL_AURA]);
   load_texture(ASSET_GROWING_BALL, 20, &ctx->src[ANIMATION_GROWING_BALL]);
@@ -139,27 +138,27 @@ animation_t *animation_new(uint32_t screen_fps, uint8_t player_count) {
   load_texture(ASSET_SOURCERER2, 20, &ctx->src[ANIMATION_PLAYER_MOVED]);
   load_texture(ASSET_MOVE1, 30, &ctx->src[ANIMATION_PLAYER_MOVE_ONE]);
   load_texture(ASSET_MOVE2, 30, &ctx->src[ANIMATION_PLAYER_MOVE_TWO]);
+  /*
+    load_texture(ASSET_PATH "blink_fire.png", 20,
+                 &ctx->src[ANIMATION_PORTAL_USE]);
+    load_texture(ASSET_PATH "cast.png", 40, &ctx->src[ANIMATION_SPELL_AURA]);
+    load_texture(ASSET_PATH "growing_ball.png", 20,
+                 &ctx->src[ANIMATION_GROWING_BALL]);
+    load_texture(ASSET_PATH "dying.png", 30, &ctx->src[ANIMATION_PLAYER_DEATH]);
+    load_texture(ASSET_PATH "sourcerer2.png", 20,
+                 &ctx->src[ANIMATION_PLAYER_MOVED]);
+    load_texture(ASSET_PATH "move1.png", 30,
+                 &ctx->src[ANIMATION_PLAYER_MOVE_ONE]);
+    load_texture(ASSET_PATH "move2.png", 30,
+                 &ctx->src[ANIMATION_PLAYER_MOVE_TWO]);
   */
-
-  load_texture(ASSET_PATH "blink_fire.png", 20,
-               &ctx->src[ANIMATION_PORTAL_USE]);
-  load_texture(ASSET_PATH "cast.png", 40, &ctx->src[ANIMATION_SPELL_AURA]);
-  load_texture(ASSET_PATH "growing_ball.png", 20,
-               &ctx->src[ANIMATION_GROWING_BALL]);
-  load_texture(ASSET_PATH "dying.png", 30, &ctx->src[ANIMATION_PLAYER_DEATH]);
-  load_texture(ASSET_PATH "sourcerer2.png", 20,
-               &ctx->src[ANIMATION_PLAYER_MOVED]);
-  load_texture(ASSET_PATH "move1.png", 30,
-               &ctx->src[ANIMATION_PLAYER_MOVE_ONE]);
-  load_texture(ASSET_PATH "move2.png", 30,
-               &ctx->src[ANIMATION_PLAYER_MOVE_TWO]);
-
   ctx->src[ANIMATION_PLAYER_MOVED].frames = 15; /* Override */
   ctx->player_count = player_count;
 
   ctx->players = calloc(player_count, sizeof(*ctx->players));
 
-  img = LoadImage(ASSET_PATH "sourcerer2.png");
+  //img = LoadImage(ASSET_PATH "sourcerer2.png");
+  img = asset_get(ASSET_SOURCERER2);
   for (uint8_t i = 0; i < player_count; i++) {
     ctx->players[i].source.width = img.width;
     ctx->players[i].source.height = img.height;
@@ -172,7 +171,7 @@ animation_t *animation_new(uint32_t screen_fps, uint8_t player_count) {
 
   ctx->player_image = LoadTextureFromImage(img);
   printf("Loaded player image\n");
-  UnloadImage(img);
+//  UnloadImage(img);
 
   ctx->cap_slots = 30;
   ctx->num_slots = 0;
@@ -345,7 +344,8 @@ static void draw_player(animation_t *ctx, uint8_t id, Rectangle *dest,
     origin.x = dest->width / 2;
     origin.y = dest->height / 2;
   }
-//printf("Drawing player at %fx%f (%fx%f)\n", dest->x, dest->y, origin.x, origin.y);
+  // printf("Drawing player at %fx%f (%fx%f)\n", dest->x, dest->y, origin.x,
+  // origin.y);
   DrawTexturePro(ctx->player_image, ctx->players[id].source, *dest, origin,
                  angle, ctx->players[id].color);
 }

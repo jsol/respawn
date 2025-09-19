@@ -5,12 +5,13 @@
 #include <stdlib.h>
 
 #include "animation.h"
-//#include "asset.h"
+#include "asset.h"
 #include "common.h"
 #include "engine.h"
 #include "incident.h"
 #include "map.h"
 #include "map_opts.h"
+#include "menu.h"
 #include "message.h"
 #include "player.h"
 #include "player_local.h"
@@ -26,7 +27,6 @@
 
 #define SELECT_FACING_RADIUS 200
 
-#define NUM_PLAYERS 6
 enum state {
   STATE_SPlASH = 0,
   STATE_MENU_MAIN,
@@ -38,7 +38,6 @@ enum state {
   STATE_SELECT_MOVE,
   STATE_SELECT_MOVE_FACE,
   STATE_SELECT_SPELL,
-  STATE_SELECT_FACING,
   STATE_ANIMATING,
   STATE_IN_GAME_WAITING
 };
@@ -68,6 +67,9 @@ typedef struct {
   engine_t *engine;
   portals_ctx_t *portals;
   animation_t *animation;
+
+  struct menu_main main_menu;
+  struct menu_local local_menu;
 
   enum state state;
   uint32_t reply_tick;
@@ -108,6 +110,8 @@ typedef struct {
 
   Texture2D walls;
   Texture2D floor;
+  Texture2D portal_base;
+  Texture2D portal_top;
 } ctx_t;
 
 static int32_t map_x(ctx_t *ctx, uint32_t x) {
@@ -134,6 +138,15 @@ static Color portal_color(enum portal_type kind) {
   return GRAY;
 }
 
+static void setup_draw_portal(ctx_t *ctx) {
+  Image img;
+
+  img = asset_get(ASSET_PORTAL1);
+  ctx->portal_base = LoadTextureFromImage(img);
+  img = asset_get(ASSET_PORTAL2);
+  ctx->portal_top = LoadTextureFromImage(img);
+}
+
 static void draw_portals(ctx_t *ctx) {
   map_opts_t *list;
   portal_t *p;
@@ -147,9 +160,24 @@ static void draw_portals(ctx_t *ctx) {
   for (uint32_t i = 0; i < list->size; i++) {
     pos_t pos = list->data[i];
     p = portals_get_at(ctx->portals, pos);
-    DrawCircle(map_x(ctx, pos.x) + ctx->w_width / 2,
-               map_y(ctx, pos.y) + ctx->w_height / 2, 10,
-               portal_color(p->kind));
+    Color col;
+    Rectangle dst;
+
+    if (p->spell == NULL) {
+      col = Fade(portal_color(p->kind), .1);
+    } else {
+      col = Fade(portal_color(p->kind), .7);
+    }
+    dst.x = map_x(ctx, pos.x) + ctx->w_width / 2;
+    dst.y = map_y(ctx, pos.y) + ctx->w_height / 2;
+    dst.width = 20;
+    dst.height = 20;
+    DrawTexturePro(ctx->portal_base, (Rectangle){0, 0, 20, 20}, dst,
+                   (Vector2){10, 10}, 0, WHITE);
+    DrawEllipse(map_x(ctx, pos.x) + ctx->w_width / 2,
+                map_y(ctx, pos.y) + ctx->w_height / 2, 7,12,  col);
+    DrawTexturePro(ctx->portal_top, (Rectangle){0, 0, 20, 20}, dst,
+                   (Vector2){10, 10}, 0, WHITE);
   }
 }
 
@@ -369,18 +397,22 @@ static void draw_buttons(ctx_t *ctx, button_t *buttons, uint8_t num_buttons,
 static void init_local(ctx_t *ctx) {
   uint32_t width = 80;
   uint32_t height = 40;
-  map_t *map = map_new(width, height, 20, 14);
+
+  map_t *map =
+      map_new(width, height, (int)ctx->local_menu.walls, ctx->local_menu.seed);
 
   ctx->msg_ctx = player_local_new();
   ctx->send_msg = player_local_send;
   ctx->get_msg = player_local_get;
 
-  ctx->engine = engine_new(NUM_PLAYERS, map, NULL, false);
+  ctx->player_count = (int)ctx->local_menu.players;
+
+  ctx->engine = engine_new(ctx->player_count, map, NULL, false);
 
   engine_add_player(ctx->engine, player_local_server_send, ctx->msg_ctx,
                     player_local_server_get, ctx->msg_ctx);
 
-  for (uint8_t i = 1; i < NUM_PLAYERS; i++) {
+  for (uint8_t i = 1; i < ctx->player_count; i++) {
     void *npc = player_npc_new();
 
     engine_add_player(ctx->engine, player_npc_server_send, npc,
@@ -478,10 +510,8 @@ static void setup_walls(ctx_t *ctx) {
   Rectangle src_rec = {.x = 0, .y = 0, .width = 20, .height = 20};
 
   img = GenImageColor(width * ctx->w_width, height * ctx->w_height, BLANK);
-    tile = LoadImage("/home/jens/git/respawn/assets/wall.png");
 
-//  tile = asset_get(ASSET_WALL);
-
+  tile = asset_get(ASSET_WALL);
 
   for (coord_t y = 0; y < height; y++) {
     for (coord_t x = 0; x < width; x++) {
@@ -505,7 +535,6 @@ static void setup_walls(ctx_t *ctx) {
 
   ctx->walls = LoadTextureFromImage(img);
   UnloadImage(img);
-  UnloadImage(tile);
 }
 
 static void draw_floor(ctx_t *ctx) {
@@ -993,6 +1022,7 @@ static void handle_message(ctx_t *ctx) {
     ctx->players = player_create(ctx->player_count);
     setup_floor(ctx);
     setup_walls(ctx);
+    setup_draw_portal(ctx);
     ctx->animation = animation_new(ctx->fps, ctx->player_count);
 
     reply = message_reply_map(msg->tick);
@@ -1415,9 +1445,7 @@ int main(int argc, char **argv) {
   ctx.margin_left = 10;
   ctx.fps = 60;
 
-  ctx.state = STATE_START_LOCAL;
-
-  init_local(&ctx);
+  ctx.state = STATE_MENU_MAIN;
 
   InitWindow(ctx.margin_left * 2 + width * ctx.w_width,
              ctx.margin_top * 2 + height * ctx.w_height, "Respawn");
@@ -1428,10 +1456,14 @@ int main(int argc, char **argv) {
 
   enum state old_state = ctx.state;
 
+  menu_setup();
+
   while (!WindowShouldClose()) {
 
-    handle_click(&ctx);
-    handle_message(&ctx);
+    if (ctx.state != STATE_MENU_MAIN) {
+      handle_click(&ctx);
+      handle_message(&ctx);
+    }
 
     if (old_state != ctx.state) {
       printf("Moved from state %d to state %d\n", old_state, ctx.state);
@@ -1443,6 +1475,28 @@ int main(int argc, char **argv) {
     ClearBackground(DARKGRAY);
 
     switch (ctx.state) {
+    case STATE_MENU_MAIN: {
+      menu_render_main(&ctx.main_menu);
+
+      if (ctx.main_menu.selection == MENU_MAIN_SELECT_LOCAL) {
+        ctx.state = STATE_MENU_LOCAL;
+      }
+      break;
+    }
+    case STATE_MENU_LOCAL: {
+      ctx.local_menu.ready = false;
+      ctx.local_menu.back = false;
+      menu_render_local(&ctx.local_menu);
+
+      if (ctx.local_menu.back) {
+        ctx.state = STATE_MENU_MAIN;
+      } else if (ctx.local_menu.ready) {
+        ctx.state = STATE_IN_GAME_WAITING;
+        init_local(&ctx);
+      }
+      break;
+    }
+
     case STATE_MAP_READY:
       draw_floor(&ctx);
       draw_portals(&ctx);

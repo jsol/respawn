@@ -88,7 +88,7 @@ static spell_t water[] =
 
               },
               {.type = SPELL_EFFECT_DAMAGE_MOD,
-               .params = {.mod = {.value = -5, .duration = 2}}},
+               .params = {.mod = {.value = -5, .duration = 4}}},
           }}
 
 };
@@ -153,7 +153,7 @@ static spell_t
                {.name = "Iron suit",
                 .speed = 100,
                 .defencive = true,
-                .charges = 3,
+                .charges = 2,
                 .burst = 1,
                 .range = {{
                     .range = 10,
@@ -161,9 +161,9 @@ static spell_t
                     .dmg = {.min = 0, .max = 0},
                 }},
                 .effect = {{.type = SPELL_EFFECT_BE_HIT_MOD,
-                            .params = {.mod = {.value = 5, .duration = 3}}},
+                            .params = {.mod = {.value = 5, .duration = 6}}},
                            {.type = SPELL_EFFECT_DAMAGE_MOD,
-                            .params = {.mod = {.value = -15, .duration = 3}}}}
+                            .params = {.mod = {.value = -15, .duration = 6}}}}
 
                },
                {.name = "Grenade",
@@ -389,9 +389,9 @@ static spell_t fire[] = {
                                    .drop_of = 4,
                                    .dmg = {.min = 5, .max = 30}}},
                 {.type = SPELL_EFFECT_HIT_MOD,
-                 .params.mod = {.value = 10, .duration = 5}},
+                 .params.mod = {.value = 10, .duration = 6}},
                 {.type = SPELL_EFFECT_BE_HIT_MOD,
-                 .params.mod = {.value = 5, .duration = 5}},
+                 .params.mod = {.value = 5, .duration = 6}},
                 {.type = SPELL_EFFECT_DAMAGE_MOD,
                  .params.mod = {.value = -10, .duration = 5}},
                 {.type = SPELL_EFFECT_POISON,

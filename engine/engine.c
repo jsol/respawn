@@ -316,17 +316,17 @@ static void resolve_moves(engine_t *ctx) {
     if (map_is_portal(ctx->map, p->position)) {
       portal_t *portal;
       incident_t *incident;
+      const spell_t *spell;
 
       portal = portals_get_at(ctx->portals, p->position);
+      spell = portal_get_spell(portal, ctx->turns + 3);
 
-      p->spells[portal->kind] = portal_get_spell(portal, ctx->turns + 3);
-      if (p->spells[portal->kind] != NULL) {
+      if (spell != NULL) {
+        p->spells[portal->kind] = portal_get_spell(portal, ctx->turns + 3);
         p->charges[portal->kind] = p->spells[portal->kind]->charges;
         incident = incident_new(ctx->incidents);
         incident->type = INCIDENT_PORTAL;
         incident->from = p->position;
-      } else {
-        p->charges[portal->kind] = 0;
       }
     }
   }
@@ -371,6 +371,9 @@ static message_t *build_player_update(engine_t *ctx, player_t *p) {
   msg->body.player_update.health = p->health;
   msg->body.player_update.kills = p->kills;
   msg->body.player_update.deaths = p->deaths;
+
+  player_add_effects_to_msg(p, &msg->body.player_update.effects,
+                            &msg->body.player_update.num_effects);
 
   for (uint8_t i = 0; i < PORTAL_NONE; i++) {
     if (p->spells[i] != NULL) {
@@ -425,11 +428,15 @@ static message_t *build_player_update(engine_t *ctx, player_t *p) {
       }
     }
 
+    player_add_effects_to_msg(
+        other, &msg->body.player_update.others[count].effects,
+        &msg->body.player_update.others[count].num_effects);
+
     count++;
   }
   msg->body.player_update.num_others = count;
 
-  portals = map_portals(ctx->map, p->los);
+  portals = map_portals(ctx->map, NULL);
   msg->body.player_update.portals =
       malloc(portals->size * sizeof(*msg->body.player_update.portals));
   count = 0;
@@ -803,7 +810,7 @@ static void apply_heal(engine_t *ctx, const struct spell_effect *eff,
 }
 static void apply_poison(engine_t *ctx, const struct spell_effect *eff,
                          pos_t target, incident_target_t *inc_targ,
-                         player_t *caster) {
+                         const spell_t *spell, player_t *caster) {
   incident_effect_t *inc_eff;
 
   for (uint8_t i = 0; i < ctx->player_count; i++) {
@@ -821,7 +828,7 @@ static void apply_poison(engine_t *ctx, const struct spell_effect *eff,
     inc_eff->type = SPELL_EFFECT_POISON;
 
     player_add_effect(candidate, *eff, inc_eff->data,
-                      eff->params.poison.duration, caster);
+                      eff->params.poison.duration, spell, caster);
   }
 }
 
@@ -870,7 +877,7 @@ static void apply_poison_effects(engine_t *ctx) {
 
 static void apply_mod(engine_t *ctx, const struct spell_effect *eff,
                       pos_t target, incident_target_t *inc_targ,
-                      player_t *caster) {
+                      const spell_t *spell, player_t *caster) {
   incident_effect_t *inc_eff;
 
   for (uint8_t i = 0; i < ctx->player_count; i++) {
@@ -888,7 +895,7 @@ static void apply_mod(engine_t *ctx, const struct spell_effect *eff,
     inc_eff->type = eff->type;
 
     player_add_effect(candidate, *eff, inc_eff->data, eff->params.mod.duration,
-                      caster);
+                      spell, caster);
   }
 }
 
@@ -914,12 +921,12 @@ static void apply_effects(engine_t *ctx, const spell_t *spell, pos_t target,
       apply_heal(ctx, &spell->effect[i], target, inc_target, caster);
       break;
     case SPELL_EFFECT_POISON:
-      apply_poison(ctx, &spell->effect[i], target, inc_target, caster);
+      apply_poison(ctx, &spell->effect[i], target, inc_target, spell, caster);
       break;
     case SPELL_EFFECT_DAMAGE_MOD:
     case SPELL_EFFECT_HIT_MOD:
     case SPELL_EFFECT_BE_HIT_MOD:
-      apply_mod(ctx, &spell->effect[i], target, inc_target, caster);
+      apply_mod(ctx, &spell->effect[i], target, inc_target, spell, caster);
       break;
     case SPELL_EFFECT_OBSCURE:
       /* TODO */

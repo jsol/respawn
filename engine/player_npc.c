@@ -81,12 +81,12 @@ static pos_t select_move(struct ctx *ctx, pos_t *opts, uint32_t opts_num) {
 
   map_opts_t *inc = NULL;
 
-   printf("======= DETERMINING MOVE ===========\n");
- /*
-  printf("Starting position: (%d,%d)\n", ctx->me->position.x,
-         ctx->me->position.y);
-  printf("Options: ");
-*/
+  printf("======= DETERMINING MOVE ===========\n");
+  /*
+   printf("Starting position: (%d,%d)\n", ctx->me->position.x,
+          ctx->me->position.y);
+   printf("Options: ");
+ */
   if (opts_num == 0) {
     printf("No options provided! \n");
     return ctx->me->position;
@@ -107,12 +107,11 @@ static pos_t select_move(struct ctx *ctx, pos_t *opts, uint32_t opts_num) {
 
     for (uint8_t i = 0; i < portals_num(ctx->portals); i++) {
       portal_t *p = portals_get(ctx->portals, i);
-      if (ctx->me->spells[p->kind] == NULL &&
+      if (ctx->me->spells[p->kind] == NULL && p->spell != NULL &&
           map_within_distance(ctx->map, ctx->me->position, p->position, 31)) {
         map_opts_add(portals, p->position);
       }
     }
-
 
     pos_t target = map_closest(ctx->map, ctx->me->position, portals);
     if (!POS_IS_UNKNOWN(target)) {

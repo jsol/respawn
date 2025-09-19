@@ -17,9 +17,7 @@ enum message_type {
   MESSAGE_ASK_FIGHT,
   MESSAGE_REPLY_FIGHT,
   MESSAGE_PLAYER_UPDATE,
-  MESSAGE_REPLY_PLAYER_UPDATE,
-  MESSAGE_REPORT,
-  MESSAGE_REPLY_REPORT
+  MESSAGE_REPLY_PLAYER_UPDATE
 };
 
 struct msg_opts {
@@ -55,7 +53,7 @@ struct incident {
   pos_t from;
   uint8_t incident_type;
   uint8_t spell_kind;
-  
+
   /* Contains the following if caster or target is in LoS */
   uint8_t spell_id;
   uint8_t player_origin;
@@ -117,6 +115,10 @@ typedef struct {
       struct msg_spell spells[PORTAL_NONE];
       struct msg_opts los;
 
+      struct msg_spell
+          *effects; /* Ongoing player effects (mods, poisons etc) */
+      uint8_t num_effects;
+
       /* Other players that are within LOS */
       struct {
         uint8_t player_id;
@@ -127,6 +129,9 @@ typedef struct {
         int8_t deaths;
 
         struct msg_spell spells[PORTAL_NONE];
+        struct msg_spell
+            *effects; /* Ongoing player effects (mods, poisons etc) */
+        uint8_t num_effects;
       } *others;
       uint8_t num_others;
 
@@ -141,9 +146,6 @@ typedef struct {
       uint32_t num_events;
 
     } player_update;
-
-    struct {
-    } report;
 
   } body;
 } message_t;

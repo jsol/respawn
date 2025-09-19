@@ -32,8 +32,8 @@ for f in *.png; do
   echo "" >> asset.c.switch
 done
 
-echo "raylib_dep = dependency('raylib')" > asset.build
-echo "lib_assets = library('assets', ['asset.c'], dependencies: raylib_dep)" >> asset.build
+echo "lib_assets = library('assets', ['asset.c'], dependencies: dependencies)" >asset.build
+echo "dependencies += declare_dependency(include_directories: '.', link_with: lib_assets)" >> asset.build
 
 echo "};" >> asset.h
 echo "" >> asset.h

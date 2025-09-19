@@ -17,3 +17,4 @@ src = [
   'spell.c',
 ]
 lib_engine = library('respawn-engine', src, dependencies: m_dep)
+dependencies += declare_dependency(include_directories: '.', link_with: lib_engine)

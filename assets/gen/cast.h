@@ -5,7 +5,7 @@
 // more info and bugs-report:  github.com/raysan5/raylib                              //
 // feedback and support:       ray[at]raylib.com                                      //
 //                                                                                    //
-// Copyright (c) 2018-2024 Ramon Santamaria (@raysan5)                                //
+// Copyright (c) 2018-2025 Ramon Santamaria (@raysan5)                                //
 //                                                                                    //
 ////////////////////////////////////////////////////////////////////////////////////////
 

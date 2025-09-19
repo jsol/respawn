@@ -17,6 +17,7 @@ struct player_effect {
   struct spell_effect eff;
   spell_effect_value_t value;
   int duration;
+  const spell_t *spell;
   player_t *caster;
   struct player_effect *next;
 };
@@ -60,8 +61,10 @@ player_t *player_create(uint32_t num);
 
 void player_add_effect(player_t *ctx, struct spell_effect from,
                        spell_effect_value_t value, int duration,
-                       player_t *caster);
+                       const spell_t *spell, player_t *caster);
 void player_time_effects(player_t *ctx);
+void player_add_effects_to_msg(player_t *ctx, struct msg_spell **effect,
+                               uint8_t *num_effect);
 
 /* Note that @param firs is a pointer to the memory block from players_create */
 void player_batch_update(player_t *first, uint32_t num_players, message_t *msg);

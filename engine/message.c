@@ -135,24 +135,6 @@ message_t *message_ask_fight(uint32_t tick) {
   return msg;
 }
 
-message_t *message_report(uint32_t tick) {
-
-  message_t *msg;
-
-  msg = new_msg(tick, MESSAGE_REPORT);
-
-  return msg;
-}
-
-message_t *message_reply_report(uint32_t tick) {
-
-  message_t *msg;
-
-  msg = new_msg(tick, MESSAGE_REPLY_REPORT);
-
-  return msg;
-}
-
 message_t *message_ref(message_t *msg) {
   struct msg_box *box;
 
@@ -218,4 +200,3 @@ void message_unref(message_t *msg) {
 
   free(box);
 }
-

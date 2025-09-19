@@ -89,7 +89,7 @@ void player_clear_tags(player_t *ctx) { ctx->tagged = 0; }
 
 void player_add_effect(player_t *ctx, struct spell_effect from,
                        spell_effect_value_t value, int duration,
-                       player_t *caster) {
+                       const spell_t *spell, player_t *caster) {
 
   struct player_effect *eff;
 
@@ -98,6 +98,7 @@ void player_add_effect(player_t *ctx, struct spell_effect from,
   eff->eff = from;
   eff->value = value;
   eff->duration = duration;
+  eff->spell = spell;
   eff->caster = caster;
 
   if (ctx->effects == NULL) {
@@ -112,6 +113,50 @@ void player_add_effect(player_t *ctx, struct spell_effect from,
 
 void player_time_effects(player_t *ctx) {
   ctx->effects = time_effect(ctx->effects);
+}
+
+static void player_set_effects(player_t *ctx, struct msg_spell *effects,
+                               uint8_t num_effects) {
+  struct player_effect *eff;
+  struct player_effect *last;
+  for (struct player_effect *eff = ctx->effects; eff != NULL; eff = eff->next) {
+    eff->duration = 0;
+  }
+  ctx->effects = time_effect(ctx->effects);
+
+  for (uint8_t i = 0; i < num_effects; i++) {
+    eff = calloc(1, sizeof(*eff));
+
+    if (ctx->effects == NULL) {
+      ctx->effects = eff;
+    } else {
+      last->next = eff;
+    }
+    last = eff;
+
+    eff->duration = effects[i].charges;
+    eff->spell = spell_get_by_id(effects[i].id);
+  }
+}
+
+void player_add_effects_to_msg(player_t *ctx, struct msg_spell **effect,
+                               uint8_t *num_effect) {
+
+  *num_effect = 0;
+  for (struct player_effect *eff = ctx->effects; eff != NULL; eff = eff->next) {
+    *num_effect = *num_effect + 1;
+  }
+  if (*num_effect == 0) {
+    return;
+  }
+  *effect = malloc(sizeof(**effect) * (*num_effect));
+  uint8_t i = 0;
+  for (struct player_effect *eff = ctx->effects; eff != NULL; eff = eff->next) {
+    (*effect)[i].id = eff->spell->id;
+    (*effect)[i].charges = eff->duration;
+
+    i++;
+  }
 }
 
 void player_batch_update(player_t *ctx, uint32_t num_players, message_t *msg) {
@@ -136,6 +181,9 @@ void player_batch_update(player_t *ctx, uint32_t num_players, message_t *msg) {
           spell_get_by_id(msg->body.player_update.others[i].spells[j].id);
       p->charges[j] = msg->body.player_update.others[i].spells[j].charges;
     }
+
+    player_set_effects(p, msg->body.player_update.others[i].effects,
+                       msg->body.player_update.others[i].num_effects);
   }
 
   me = &ctx[msg->body.player_update.player_id];
@@ -149,6 +197,8 @@ void player_batch_update(player_t *ctx, uint32_t num_players, message_t *msg) {
     me->spells[j] = spell_get_by_id(msg->body.player_update.spells[j].id);
     me->charges[j] = msg->body.player_update.spells[j].charges;
   }
+  player_set_effects(me, msg->body.player_update.effects,
+                     msg->body.player_update.num_effects);
 }
 
 void player_killed(player_t *ctx) {
